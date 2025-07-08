@@ -15,6 +15,30 @@ export interface ComponentConfig {
 
 export const componentsConfig: ComponentConfig[] = [
   {
+    id: 'etiqueta-ml',
+    title: 'Etiqueta ML',
+    description: 'Gere uma folha pronta para impressão com a etiqueta e a declaração de conteúdo do Mercado Livre, removendo a terceira página e otimizando o layout.',
+    icon: FileText,
+    category: 'PDF',
+    keywords: ['mercado livre', 'etiqueta', 'ml', 'declaracao', 'pdf', 'impressao', 'juntar', 'otimizar'],
+    fileFormats: ['pdf'],
+    mainFeatures: [
+      'Remove a terceira página do PDF',
+      'Une etiqueta e declaração em uma folha',
+      'Ajuste automático de layout',
+      'Pronto para impressão em A4'
+    ],
+    useCases: [
+      'Imprimir etiqueta Mercado Livre',
+      'Juntar etiqueta e declaração',
+      'Otimizar PDF para envio',
+      'Remover páginas extras do PDF'
+    ],
+    searchTerms: [
+      'mercado livre', 'ml', 'etiqueta', 'declaracao', 'pdf', 'impressao', 'juntar', 'remover pagina', 'otimizar', 'a4', 'folha', 'imprimir', 'envio', 'correios'
+    ]
+  },
+  {
     id: 'convert',
     title: 'Converter Formato',
     description: 'Converta suas imagens entre mais de 20 formatos diferentes',

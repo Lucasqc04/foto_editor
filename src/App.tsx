@@ -25,9 +25,10 @@ import DuplicateImageDetector from './components/DuplicateImageDetector';
 import CalendarCreator from './components/CalendarCreator';
 import SensitiveTextDetector from './components/SensitiveTextDetector';
 import UnsplashImageSearch from './components/UnsplashImageSearch';
+import EtiquetaML from './components/EtiquetaML';
 import DonationButton from './components/DonationButton';
 
-type ConversionType = 'convert' | 'pdf' | 'resize' | 'edit' | 'video' | 'pdf-tools' | 'batch' | 'webcam' | 'collage' | 'remove-bg' | 'enhance' | 'colors' | 'signature' | 'object-remove' | 'measure' | 'artistic' | 'scanner' | 'translate' | 'duplicate-detector' | 'calendar-creator' | 'sensitive-text-detector' | 'unsplash-search';
+type ConversionType = 'convert' | 'pdf' | 'resize' | 'edit' | 'video' | 'pdf-tools' | 'batch' | 'webcam' | 'collage' | 'remove-bg' | 'enhance' | 'colors' | 'signature' | 'object-remove' | 'measure' | 'artistic' | 'scanner' | 'translate' | 'duplicate-detector' | 'calendar-creator' | 'sensitive-text-detector' | 'unsplash-search' | 'etiqueta-ml';
 
 function App() {
   const [activeTab, setActiveTab] = useState<ConversionType>('convert');
@@ -56,6 +57,7 @@ function App() {
     { id: 'batch', label: 'Processamento em Lote', icon: Package },
     { id: 'webcam', label: 'Captura Webcam', icon: Camera },
     { id: 'collage', label: 'Colagem de Imagens', icon: Grid },
+    { id: 'etiqueta-ml', label: 'Etiqueta ML', icon: FileText },
   ];
 
   const handleConversionComplete = () => {
@@ -171,6 +173,9 @@ function App() {
           )}
           {activeTab === 'unsplash-search' && (
             <UnsplashImageSearch onConversionComplete={handleConversionComplete} />
+          )}
+          {activeTab === 'etiqueta-ml' && (
+            <EtiquetaML />
           )}
         </div>
 
