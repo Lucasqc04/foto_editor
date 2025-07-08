@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { PDFDocument, degrees } from 'pdf-lib';
-import { Download, Loader2, CheckCircle, RefreshCw, FileText, Eye, Package, Printer, Combine } from 'lucide-react';
+import { Download, Loader2, CheckCircle, RefreshCw, FileText, Eye, Package } from 'lucide-react';
 import FileUpload from './FileUpload';
 import DownloadModal from './DownloadModal';
 
@@ -59,7 +59,7 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     const embeddedPage2 = await newPdf.embedPage(page2);
     newPage.drawPage(embeddedPage2, {
       x: width - (embeddedPage2.height * 0.5) + 510,
-      y: height - (embeddedPage2.width * 0.5) - 185,
+      y: height - (embeddedPage2.width * 0.5) - 200,
       xScale: 0.8,
       yScale: 0.8,
       rotate: degrees(90),
@@ -69,9 +69,9 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     const embeddedPage1 = await newPdf.embedPage(page1);
     newPage.drawPage(embeddedPage1, {
       x: embeddedPage1.height + 140,
-      y: 10,
-      xScale: 1.2,
-      yScale: 1.2,
+      y: 45,
+      xScale: 1,
+      yScale: 1,
       rotate: degrees(90),
     });
     
@@ -107,9 +107,9 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
       if (onConversionComplete) {
         onConversionComplete();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Erro ao processar PDFs:', err);
-      setError(err.message || 'Erro ao processar os PDFs. Verifique se todos os arquivos são válidos.');
+      setError(err instanceof Error ? err.message : 'Erro ao processar os PDFs. Verifique se todos os arquivos são válidos.');
     } finally {
       setIsProcessing(false);
     }
