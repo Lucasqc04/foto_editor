@@ -49,16 +49,23 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
   const [previewFullScreen, setPreviewFullScreen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [combinedPdfUrl, setCombinedPdfUrl] = useState<string | null>(null);
-  const [history, setHistory] = useState<{ name: string; file: string }[]>(() => {
+  const [history, setHistory] = useState<{ file: string; date: number }[]>(() => {
     const saved = localStorage.getItem('etiquetaML_history');
     return saved ? JSON.parse(saved) : [];
   });
   const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyFilter, setHistoryFilter] = useState('');
+  const [historyPageSize, setHistoryPageSize] = useState(10); // novo estado para quantidade por página
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [editValue, setEditValue] = useState('');
   const pageSize = 10;
+
+  // --- NOVOS ESTADOS ---
+  const [isCombining, setIsCombining] = useState(false);
+  const [combineProgress, setCombineProgress] = useState(0);
+  const [userMessage, setUserMessage] = useState<string | null>(null);
+  // ---------------------
 
   // Alerta ao fechar a página se o OCR estiver rodando
   React.useEffect(() => {
@@ -114,6 +121,7 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     }));
   };
 
+  // Salva no histórico ao processar PDFs (sem OCR)
   const processSinglePDF = async (file: File, config = advancedConfig): Promise<ProcessedPDF> => {
     const arrayBuffer = await file.arrayBuffer();
     const pdfDoc = await PDFDocument.load(arrayBuffer);
@@ -156,20 +164,11 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
 
-    // OCR para histórico (em paralelo, não bloqueia o retorno do PDF)
-    (async () => {
-      try {
-        setOcrStatus(`Lendo nome do destinatário do arquivo: ${file.name}`);
-        const name = await extractDestinatarioFromPDF(blob, file.name);
-        if (name) {
-          setHistory((prev) => [...prev, { name, file: file.name }]);
-        }
-        setOcrStatus(null);
-      } catch (err) {
-        setOcrStatus(null);
-        console.log('Erro ao rodar OCR no arquivo', file.name, err);
-      }
-    })();
+    // Salva no histórico apenas nome e data
+    setHistory((prev) => [
+      ...prev,
+      { file: file.name, date: Date.now() }
+    ]);
 
     return {
       id: `${Date.now()}-${Math.random()}`,
@@ -239,81 +238,108 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     }
   }
 
-  async function extractDestinatarioFromPDF(pdfBlob: Blob, fileName?: string): Promise<string> {
-    if (fileName) console.log('Lendo PDF:', fileName);
-    const imageDataUrl = await pdfPageToImage(pdfBlob);
-    if (!imageDataUrl) {
-      if (fileName) console.log('Não foi possível converter o PDF para imagem para OCR:', fileName);
-      return '';
-    }
-    const result = await Tesseract.recognize(imageDataUrl, 'por');
-    if (fileName) console.log('Resultado OCR do PDF', fileName + ':', result.data.text);
-    const text = result.data.text;
-    const lines = text.split(/\r?\n/);
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes('destinatario')) {
-        for (let j = i + 1; j < lines.length; j++) {
-          let possibleName = lines[j].trim();
-          // Corta no início de qualquer grupo de 2+ letras maiúsculas (ex: RR, RCC, MR, NS, SS, etc)
-          const corte = possibleName.search(/\b([A-Z]{2,}(\s)?)+/g);
-          if (corte > 0) {
-            possibleName = possibleName.slice(0, corte).trim();
-          }
-          if (possibleName.length > 2) {
-            if (fileName) console.log('Nome capturado do PDF', fileName + ':', possibleName);
-            return possibleName;
-          }
-        }
-      }
-    }
-    if (fileName) console.log('Nome capturado do PDF', fileName + ':', '[NÃO ENCONTRADO]');
-    return '';
-  }
+  
 
-  const combineAllPDFs = async (openAfterCombine = false) => {
-    if (processedPDFs.length === 0) return;
+  const combineAllPDFs = async (openAfterCombine = false, preOpenedWin?: Window | null) => {
+    if (processedPDFs.length === 0) {
+      setUserMessage('Nenhum PDF processado para combinar.');
+      return;
+    }
+    setIsCombining(true);
+    setCombineProgress(0);
+    setUserMessage(null);
     try {
       const combinedPdf = await PDFDocument.create();
-      const newHistory: { name: string; file: string }[] = [];
-      for (const processedPDF of processedPDFs) {
+      for (let i = 0; i < processedPDFs.length; i++) {
+        const processedPDF = processedPDFs[i];
+        setCombineProgress(Math.round(((i) / processedPDFs.length) * 100));
         const arrayBuffer = await processedPDF.blob.arrayBuffer();
         const pdfDoc = await PDFDocument.load(arrayBuffer);
         const pages = await combinedPdf.copyPages(pdfDoc, [0]);
         pages.forEach(page => combinedPdf.addPage(page));
-        // OCR para histórico
-        try {
-          const name = await extractDestinatarioFromPDF(processedPDF.blob, processedPDF.originalName);
-          if (name) {
-            newHistory.push({ name, file: processedPDF.originalName });
-          }
-        } catch {}
+        // Não faz mais OCR nem histórico aqui
       }
-      if (newHistory.length > 0) {
-        setHistory((prev) => [...prev, ...newHistory]);
-      }
+      setCombineProgress(100);
       const pdfBytes = await combinedPdf.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
       setDownloadFilename('etiquetas-ml-combinadas');
-      setShowDownloadModal(!openAfterCombine);
       setCombinedPdfUrl(url);
+
       if (openAfterCombine) {
-        window.open(url, '_blank');
+        if (preOpenedWin && !preOpenedWin.closed) {
+          preOpenedWin.location.href = url;
+        } else {
+          const w = window.open(url, '_blank');
+          if (!w) setUserMessage('Popup bloqueado. Libere popups para visualizar/imprimir.');
+        }
+      } else {
+        setShowDownloadModal(true);
       }
     } catch (err) {
       console.error('Erro ao combinar PDFs:', err);
       setError('Erro ao combinar os PDFs.');
+      setUserMessage('Falha ao combinar. Verifique os arquivos e tente novamente.');
+    } finally {
+      setIsCombining(false);
+      setTimeout(() => setCombineProgress(0), 1200);
     }
   };
 
   const printAllCombined = async () => {
-    if (processedPDFs.length === 0) return;
-    if (combinedPdfUrl) {
-      window.open(combinedPdfUrl, '_blank');
-    } else {
-      await combineAllPDFs(true);
+    if (processedPDFs.length === 0) {
+      setUserMessage('Você precisa processar os PDFs antes de imprimir todos.');
+      return;
     }
+    // Se já existe combinado, abre diretamente (sem recriar)
+    if (combinedPdfUrl) {
+      const w = window.open(combinedPdfUrl, '_blank');
+      if (!w) setUserMessage('Popup bloqueado. Libere popups para impressão.');
+      return;
+    }
+    // Abre janela imediatamente (para não ser bloqueada)
+    const preWin = window.open('', '_blank');
+    if (!preWin) {
+      setUserMessage('Popup bloqueado. Libere popups para impressão.');
+      // ainda assim tenta combinar para disponibilizar download
+      await combineAllPDFs(false);
+      return;
+    }
+    // mostra mensagem temporária enquanto gera
+    preWin.document.write('<html><head><title>Gerando...</title></head><body><p style="font-family: sans-serif;">Gerando PDF combinado, aguarde...</p></body></html>');
+    await combineAllPDFs(true, preWin);
+  };
+
+  // Filtro e paginação do histórico
+  const filteredHistory = history
+    .filter(item =>
+      item.file.toLowerCase().includes(historyFilter.toLowerCase())
+    )
+    .sort((a, b) => b.date - a.date);
+
+  const totalPages = Math.ceil(filteredHistory.length / historyPageSize) || 1;
+  const paginatedHistory = filteredHistory.slice((historyPage - 1) * historyPageSize, historyPage * historyPageSize);
+
+  const handleDeleteHistory = (idx: number) => {
+    setHistory(prev => prev.filter((_, i) => i !== idx + (historyPage - 1) * historyPageSize));
+  };
+
+  const handleEditHistory = (idx: number) => {
+    setEditIdx(idx);
+    setEditValue(paginatedHistory[idx].file);
+  };
+
+  const handleSaveEditHistory = (idx: number) => {
+    const globalIdx = (historyPage - 1) * historyPageSize + idx;
+    setHistory(prev => prev.map((item, i) => i === globalIdx ? { ...item, file: editValue } : item));
+    setEditIdx(null);
+    setEditValue('');
+  };
+
+  const handleCancelEditHistory = () => {
+    setEditIdx(null);
+    setEditValue('');
   };
 
   const handleDownload = (filename: string) => {
@@ -325,67 +351,9 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    
+
     setShowDownloadModal(false);
     setDownloadUrl('');
-  };
-
-  const downloadIndividual = (processedPDF: ProcessedPDF) => {
-    setDownloadUrl(processedPDF.url);
-    setDownloadFilename(`etiqueta-${processedPDF.originalName.replace('.pdf', '-otimizada')}`);
-    setShowDownloadModal(true);
-  };
-
-  const printPDF = (url: string) => {
-    window.open(url, '_blank');
-  };
-
-  const previewAllPDFs = async () => {
-    if (uploadedFiles.length === 0) return;
-    setIsProcessing(true);
-    setError(null);
-    try {
-      const urls: string[] = [];
-      for (const file of uploadedFiles) {
-        const processedPDF = await processSinglePDF(file, advancedConfig);
-        urls.push(processedPDF.url);
-      }
-      setPreviewUrls(urls);
-      setShowPreviewModal(true);
-    } catch (err: unknown) {
-      setError('Erro ao gerar pré-visualização.');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // Filtro e paginação do histórico
-  const filteredHistory = history.filter(item =>
-    item.name.toLowerCase().includes(historyFilter.toLowerCase()) ||
-    item.file.toLowerCase().includes(historyFilter.toLowerCase())
-  );
-  const totalPages = Math.ceil(filteredHistory.length / pageSize) || 1;
-  const paginatedHistory = filteredHistory.slice((historyPage - 1) * pageSize, historyPage * pageSize);
-
-  const handleDeleteHistory = (idx: number) => {
-    setHistory(prev => prev.filter((_, i) => i !== idx + (historyPage - 1) * pageSize));
-  };
-
-  const handleEditHistory = (idx: number) => {
-    setEditIdx(idx);
-    setEditValue(paginatedHistory[idx].name);
-  };
-
-  const handleSaveEditHistory = (idx: number) => {
-    const globalIdx = idx + (historyPage - 1) * pageSize;
-    setHistory(prev => prev.map((item, i) => i === globalIdx ? { ...item, name: editValue } : item));
-    setEditIdx(null);
-    setEditValue('');
-  };
-
-  const handleCancelEditHistory = () => {
-    setEditIdx(null);
-    setEditValue('');
   };
 
   return (
@@ -470,6 +438,13 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
 
       {processedPDFs.length > 0 && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-6">
+          {/* MENSAGEM / STATUS DE COMBINAÇÃO */}
+          {isCombining && (
+            <div className="mb-4 flex items-center gap-2 text-sm text-purple-800 bg-purple-50 border border-purple-200 rounded p-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>Combinando PDFs... {combineProgress}%</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 mb-4">
             <CheckCircle className="h-6 w-6 text-green-600" />
             <h3 className="text-lg font-medium text-green-800">
@@ -482,17 +457,19 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
               <button
                 onClick={() => combineAllPDFs()}
-                className="bg-purple-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+                disabled={isCombining}
+                className={`bg-purple-600 text-white py-3 px-6 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isCombining ? 'opacity-60 cursor-not-allowed' : 'hover:bg-purple-700'}`}
               >
-                <Package className="h-5 w-5" />
-                Combinar Todos em um PDF
+                {isCombining ? <Loader2 className="h-5 w-5 animate-spin" /> : <Package className="h-5 w-5" />}
+                {isCombining ? 'Combinando...' : 'Combinar Todos em um PDF'}
               </button>
               <button
                 onClick={printAllCombined}
-                className="bg-orange-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-orange-700 transition-colors flex items-center justify-center gap-2"
+                disabled={isCombining}
+                className={`bg-orange-600 text-white py-3 px-6 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${isCombining ? 'opacity-60 cursor-not-allowed' : 'hover:bg-orange-700'}`}
               >
-                <Eye className="h-5 w-5" />
-                Imprimir Todos
+                {isCombining ? <Loader2 className="h-5 w-5 animate-spin" /> : <Eye className="h-5 w-5" />}
+                {isCombining ? 'Preparando...' : 'Imprimir Todos'}
               </button>
             </div>
           )}
@@ -661,22 +638,35 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
       {/* Histórico de Etiquetas */}
       {history.length > 0 && (
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-6">
-          <h4 className="font-medium text-gray-700 mb-2">Histórico de Etiquetas Impressas</h4>
+          <h4 className="font-medium text-gray-700 mb-2">Histórico de Etiquetas</h4>
           <div className="flex flex-col md:flex-row md:items-center gap-2 mb-2">
             <input
               type="text"
-              placeholder="Filtrar por destinatário ou arquivo..."
+              placeholder="Filtrar por arquivo..."
               value={historyFilter}
               onChange={e => { setHistoryFilter(e.target.value); setHistoryPage(1); }}
               className="border rounded px-2 py-1 text-sm w-full md:w-64"
             />
+            <div className="flex items-center gap-2">
+              <label htmlFor="pageSize" className="text-xs text-gray-600">Por página:</label>
+              <select
+                id="pageSize"
+                value={historyPageSize}
+                onChange={e => { setHistoryPageSize(Number(e.target.value)); setHistoryPage(1); }}
+                className="border rounded px-2 py-1 text-sm"
+              >
+                {[5, 10, 20, 50, 100].map(size => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-600 border-b">
-                  <th className="py-2 pr-4">Destinatário</th>
                   <th className="py-2 pr-4">Arquivo</th>
+                  <th className="py-2 pr-4">Data/Hora</th>
                   <th className="py-2 pr-4">Ações</th>
                 </tr>
               </thead>
@@ -692,10 +682,12 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
                           className="border rounded px-2 py-1 text-sm w-40"
                         />
                       ) : (
-                        item.name
+                        item.file
                       )}
                     </td>
-                    <td className="py-2 pr-4 text-gray-700">{item.file}</td>
+                    <td className="py-2 pr-4 text-gray-700">
+                      {new Date(item.date).toLocaleString('pt-BR')}
+                    </td>
                     <td className="py-2 pr-4 flex gap-2">
                       {editIdx === idx ? (
                         <>
@@ -724,15 +716,9 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
           </div>
         </div>
       )}
-
-      {ocrStatus && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 flex items-center gap-2">
-          <Loader2 className="h-5 w-5 animate-spin text-yellow-600" />
-          <span className="text-yellow-800 font-medium">{ocrStatus}</span>
-        </div>
-      )}
     </div>
   );
 }
 
 export default EtiquetaML;
+   
