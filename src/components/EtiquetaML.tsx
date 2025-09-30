@@ -53,7 +53,6 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     const saved = localStorage.getItem('etiquetaML_history');
     return saved ? JSON.parse(saved) : [];
   });
-  const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
   const [historyFilter, setHistoryFilter] = useState('');
   const [historyPageSize, setHistoryPageSize] = useState(10); // novo estado para quantidade por página
@@ -63,39 +62,17 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
 
   // --- NOVOS ESTADOS ---
   const [isCombining, setIsCombining] = useState(false);
-  const [combineProgress, setCombineProgress] = useState(0);
-  const [userMessage, setUserMessage] = useState<string | null>(null);
+  // combineProgress removido pois não é mais necessário
   // ---------------------
 
   // Alerta ao fechar a página se o OCR estiver rodando
-  React.useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (ocrStatus) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [ocrStatus]);
+  // Removido efeito de OCR
 
   const handleFileSelect = (files: File[]) => {
     setUploadedFiles(files);
     setProcessedPDFs([]);
     setError(null);
-    // Aviso de duplicidade
-    if (files.length > 0) {
-      const fileNames = files.map(f => f.name);
-      const duplicates = fileNames.filter(name => history.some(h => h.file === name));
-      if (duplicates.length > 0) {
-        setDuplicateWarning(`Atenção: O(s) arquivo(s) ${duplicates.join(', ')} já existem no histórico!`);
-      } else {
-        setDuplicateWarning(null);
-      }
-    } else {
-      setDuplicateWarning(null);
-    }
+    // Removido aviso de duplicidade
   };
 
   const handleRemoveFile = (index: number) => {
@@ -205,61 +182,21 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     }
   };
 
-  async function pdfPageToImage(pdfBlob: Blob): Promise<string> {
-    try {
-      const arrayBuffer = await pdfBlob.arrayBuffer();
-      const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-      const page = await pdf.getPage(1);
-      const viewport = page.getViewport({ scale: 2 });
-      // Cria um canvas para a página original
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error('Não foi possível obter o contexto do canvas');
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await page.render({ canvasContext: context, viewport }).promise;
-      // Cria um novo canvas rotacionado 90 graus
-      const rotatedCanvas = document.createElement('canvas');
-      rotatedCanvas.width = canvas.height;
-      rotatedCanvas.height = canvas.width;
-      const rotatedContext = rotatedCanvas.getContext('2d');
-      if (!rotatedContext) throw new Error('Não foi possível obter o contexto do canvas rotacionado');
-      // Rotaciona 90 graus sentido horário
-      rotatedContext.save();
-      rotatedContext.translate(rotatedCanvas.width / 2, rotatedCanvas.height / 2);
-      rotatedContext.rotate(90 * Math.PI / 180);
-      rotatedContext.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
-      rotatedContext.restore();
-      const imageData = rotatedCanvas.toDataURL('image/jpeg', 0.85);
-      return imageData;
-    } catch (error) {
-      console.error('Erro ao converter PDF para imagem:', error);
-      return '';
-    }
-  }
 
   
 
   const combineAllPDFs = async (openAfterCombine = false, preOpenedWin?: Window | null) => {
-    if (processedPDFs.length === 0) {
-      setUserMessage('Nenhum PDF processado para combinar.');
-      return;
-    }
+    if (processedPDFs.length === 0) return;
     setIsCombining(true);
-    setCombineProgress(0);
-    setUserMessage(null);
     try {
       const combinedPdf = await PDFDocument.create();
-      for (let i = 0; i < processedPDFs.length; i++) {
-        const processedPDF = processedPDFs[i];
-        setCombineProgress(Math.round(((i) / processedPDFs.length) * 100));
+      // Processa todos os PDFs rapidamente, sem progress bar
+      await Promise.all(processedPDFs.map(async (processedPDF) => {
         const arrayBuffer = await processedPDF.blob.arrayBuffer();
         const pdfDoc = await PDFDocument.load(arrayBuffer);
         const pages = await combinedPdf.copyPages(pdfDoc, [0]);
         pages.forEach(page => combinedPdf.addPage(page));
-        // Não faz mais OCR nem histórico aqui
-      }
-      setCombineProgress(100);
+      }));
       const pdfBytes = await combinedPdf.save();
       const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
@@ -271,8 +208,7 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
         if (preOpenedWin && !preOpenedWin.closed) {
           preOpenedWin.location.href = url;
         } else {
-          const w = window.open(url, '_blank');
-          if (!w) setUserMessage('Popup bloqueado. Libere popups para visualizar/imprimir.');
+          window.open(url, '_blank');
         }
       } else {
         setShowDownloadModal(true);
@@ -280,10 +216,8 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
     } catch (err) {
       console.error('Erro ao combinar PDFs:', err);
       setError('Erro ao combinar os PDFs.');
-      setUserMessage('Falha ao combinar. Verifique os arquivos e tente novamente.');
     } finally {
       setIsCombining(false);
-      setTimeout(() => setCombineProgress(0), 1200);
     }
   };
 
@@ -442,7 +376,7 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
           {isCombining && (
             <div className="mb-4 flex items-center gap-2 text-sm text-purple-800 bg-purple-50 border border-purple-200 rounded p-2">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span>Combinando PDFs... {combineProgress}%</span>
+              <span>Combinando PDFs...</span>
             </div>
           )}
           <div className="flex items-center gap-2 mb-4">
@@ -490,13 +424,16 @@ const EtiquetaML: React.FC<EtiquetaMLProps> = ({ onConversionComplete }) => {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => printPDF(pdf.url)}
-                      className="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-1"
-                    >
-                      <Eye className="h-4 w-4" />
-                      Imprimir
-                    </button>
+                      <button
+                        onClick={() => {
+                          const w = window.open(pdf.url, '_blank');
+                          if (!w) setUserMessage('Popup bloqueado. Libere popups para impressão.');
+                        }}
+                        className="bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-1"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Imprimir
+                      </button>
                     <button
                       onClick={() => downloadIndividual(pdf)}
                       className="bg-green-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors flex items-center gap-1"
